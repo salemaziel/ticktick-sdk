@@ -75,6 +75,7 @@ class TickTickClient:
         # V2 Session credentials
         username: str | None = None,
         password: str | None = None,
+        totp_secret: str | None = None,
         # General
         timeout: float = 30.0,
         device_id: str | None = None,
@@ -86,6 +87,7 @@ class TickTickClient:
             v1_access_token=v1_access_token,
             username=username,
             password=password,
+            totp_secret=totp_secret,
             timeout=timeout,
             device_id=device_id,
         )
@@ -115,6 +117,7 @@ class TickTickClient:
             v1_access_token=settings.get_v1_access_token(),
             username=settings.username,
             password=settings.get_v2_password(),
+            totp_secret=settings.get_totp_secret(),
             timeout=settings.timeout,
             device_id=settings.device_id,
         )
