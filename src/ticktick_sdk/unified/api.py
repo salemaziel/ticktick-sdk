@@ -1051,7 +1051,7 @@ class UnifiedTickTickAPI:
                 - start_date: New start date
                 - due_date: New due date
                 - time_zone: New timezone
-                - is_all_day: All-day flag
+                - all_day: All-day flag
                 - tags: New tags (replaces existing)
                 - recurrence: New recurrence rule
                 - column_id: Kanban column ID (empty string to remove from column)
@@ -1111,8 +1111,8 @@ class UnifiedTickTickAPI:
                 v2_update["dueDate"] = due_date
             if "time_zone" in update and update["time_zone"] is not None:
                 v2_update["timeZone"] = update["time_zone"]
-            if "is_all_day" in update and update["is_all_day"] is not None:
-                v2_update["isAllDay"] = update["is_all_day"]
+            if "all_day" in update and update["all_day"] is not None:
+                v2_update["isAllDay"] = update["all_day"]
             if "tags" in update and update["tags"] is not None:
                 v2_update["tags"] = update["tags"]
             if "recurrence" in update and update["recurrence"] is not None:

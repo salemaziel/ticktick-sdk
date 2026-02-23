@@ -124,19 +124,18 @@ class SessionHandler:
         cookies = session.cookies
     """
 
-    # Headers must match what the TickTick web app sends to avoid 429 rate limiting
+    # Headers must match what the web app sends to avoid 429 rate limiting
     # at the AWS ELB level. Origin and Referer headers are required.
-    # (Based on capture from ticktick.com via Chrome DevTools.)
-    # Headers must match what the TickTick web app sends to avoid 429 rate limiting
-    # at the AWS ELB level. (Based on a curl capture from ticktick.com.)
+    # Updated Feb 2026 to fix 429 errors - see GitHub issue #33
     DEFAULT_USER_AGENT = (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/145.0.0.0 Safari/537.36"
+        "Chrome/120.0.0.0 Safari/537.36"
     )
 
-    # Web app version for X-Device header (from curl capture)
-    WEB_APP_VERSION = 8020
+    # Web app version for X-Device header. The specific version number
+    # doesn't appear to be validated, but the full X-Device format is required.
+    WEB_APP_VERSION = 6430
 
     def __init__(
         self,
@@ -181,19 +180,17 @@ class SessionHandler:
     def _get_x_device_header(self) -> str:
         """Get the x-device header JSON string.
 
-        Uses minimal format that works (based on pyticktick).
-        Only 3 fields: platform, version, id
+        Must use full web app format to avoid 429 rate limiting.
+        The version number is not strictly validated, but the full
+        structure with os/device/channel fields is required.
         """
         import json
 
-        # Must use full web app format to avoid 429 rate limiting.
-        # The version number is not strictly validated, but the full structure
-        # with os/device/channel fields is required.
         return json.dumps(
             {
                 "platform": "web",
                 "os": "macOS 10.15.7",
-                "device": "Chrome 145.0.0.0",
+                "device": "Chrome 120.0.0.0",
                 "name": "",
                 "version": self.WEB_APP_VERSION,
                 "id": self.device_id,
@@ -206,32 +203,14 @@ class SessionHandler:
     def _get_headers(self) -> dict[str, str]:
         """Get headers for authentication requests.
 
-        Minimal headers - don't over-engineer with browser-exact headers.
-        The API just needs User-Agent and X-Device.
-        Content-Type is added automatically by httpx when using json=.
+        Must include Origin and Referer headers to avoid 429 rate limiting
+        at the AWS ELB level. Updated Feb 2026 - see GitHub issue #33.
         """
-        # Keep this close to a real browser request; TickTick's ELB appears to
-        # rate-limit / block requests that don't look like web traffic.
         return {
-            "accept": "*/*",
-            "accept-language": "en-US,en;q=0.9",
-            # content-type is added by httpx when using json=, but including it
-            # doesn't hurt and matches browser captures.
-            "content-type": "application/json",
-            "origin": "https://ticktick.com",
-            "referer": "https://ticktick.com/",
-            "priority": "u=1, i",
-            "sec-ch-ua": '"Chromium";v="145", "Not:A-Brand";v="99"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"macOS"',
-            "sec-fetch-dest": "empty",
-            "sec-fetch-mode": "cors",
-            "sec-fetch-site": "same-site",
-            "user-agent": self.DEFAULT_USER_AGENT,
-            # Some captures include an empty x-csrftoken; leaving it blank is OK.
-            "x-csrftoken": "",
-            "x-device": self._get_x_device_header(),
-            "x-requested-with": "XMLHttpRequest",
+            "User-Agent": self.DEFAULT_USER_AGENT,
+            "Origin": "https://ticktick.com",
+            "Referer": "https://ticktick.com/",
+            "X-Device": self._get_x_device_header(),
         }
 
     async def authenticate(

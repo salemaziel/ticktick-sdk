@@ -11,10 +11,9 @@ user-friendly interface with additional convenience methods.
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from types import TracebackType
 from typing import Any, TypeVar
-from zoneinfo import ZoneInfo
 
 from ticktick_sdk.models import (
     Column,
@@ -191,140 +190,6 @@ class TickTickClient:
         """
         return await self._api.list_all_tasks()
 
-    async def get_today_tasks(
-        self,
-        tz: str = "UTC",
-    ) -> list[Task]:
-        """
-        Get tasks showing in TickTick's "Today" smart list.
-
-        Mirrors TickTick's client-side "Today" logic:
-        - Tasks with start_date <= end of today (started or should have started)
-        - Tasks with due_date <= end of today (due or overdue)
-        - Excludes completed tasks (status >= 2)
-
-        Args:
-            tz: IANA timezone string (e.g., "America/New_York").
-                Determines what "today" means for the user.
-
-        Returns:
-            List of tasks that would appear in TickTick's Today view,
-            sorted by due_date (overdue first, then by time).
-        """
-        user_tz = ZoneInfo(tz)
-        now = datetime.now(user_tz)
-        today_end = now.replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
-
-        all_tasks = await self.get_all_tasks()
-        today_tasks: list[Task] = []
-
-        for task in all_tasks:
-            if task.status and task.status >= 2:
-                continue
-
-            dominated = False
-            for date_val in (task.due_date, getattr(task, "start_date", None)):
-                if not date_val:
-                    continue
-                try:
-                    if isinstance(date_val, str):
-                        cleaned = date_val.replace("+0000", "+00:00").replace(
-                            "Z", "+00:00"
-                        )
-                        dt = datetime.fromisoformat(cleaned)
-                    else:
-                        dt = date_val
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    if dt.astimezone(user_tz) <= today_end:
-                        dominated = True
-                        break
-                except (ValueError, TypeError):
-                    continue
-
-            if dominated:
-                today_tasks.append(task)
-
-        # Sort: overdue first (by date), then today tasks
-        def sort_key(t: Task) -> datetime:
-            for dv in (t.due_date, getattr(t, "start_date", None)):
-                if dv:
-                    try:
-                        if isinstance(dv, str):
-                            dv = datetime.fromisoformat(
-                                dv.replace("+0000", "+00:00").replace("Z", "+00:00")
-                            )
-                        if isinstance(dv, datetime):
-                            if dv.tzinfo is None:
-                                dv = dv.replace(tzinfo=timezone.utc)
-                            return dv
-                    except (ValueError, TypeError):
-                        pass
-            return today_end  # no date = end of sort
-
-        today_tasks.sort(key=sort_key)
-        return today_tasks
-
-
-    async def get_upcoming_tasks(
-        self,
-        days: int = 7,
-        tz: str = "UTC",
-    ) -> list[Task]:
-        """
-        Get tasks within the next N days (mirrors TickTick's "Next 7 Days" view).
-
-        Includes tasks where start_date or due_date falls between now
-        and end-of-day N days from now. Excludes completed tasks.
-
-        Args:
-            days: Number of days to look ahead (default 7).
-            tz: IANA timezone string (e.g., "America/Los_Angeles").
-
-        Returns:
-            List of upcoming tasks, sorted by earliest relevant date.
-        """
-        user_tz = ZoneInfo(tz)
-        now = datetime.now(user_tz)
-        window_end = (now + timedelta(days=days)).replace(
-            hour=23, minute=59, second=59, microsecond=999999
-        )
-
-        all_tasks = await self.get_all_tasks()
-        upcoming: list[tuple[datetime, Task]] = []
-
-        for task in all_tasks:
-            if task.status and task.status >= 2:
-                continue
-
-            earliest: datetime | None = None
-            for date_val in (task.due_date, getattr(task, "start_date", None)):
-                if not date_val:
-                    continue
-                try:
-                    if isinstance(date_val, str):
-                        cleaned = date_val.replace("+0000", "+00:00").replace(
-                            "Z", "+00:00"
-                        )
-                        dt = datetime.fromisoformat(cleaned)
-                    else:
-                        dt = date_val
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    dt_local = dt.astimezone(user_tz)
-                    if dt_local <= window_end:
-                        if earliest is None or dt_local < earliest:
-                            earliest = dt_local
-                except (ValueError, TypeError):
-                    continue
-
-            if earliest is not None:
-                upcoming.append((earliest, task))
-
-        upcoming.sort(key=lambda x: x[0])
-        return [task for _, task in upcoming]
     async def get_task(self, task_id: str, project_id: str | None = None) -> Task:
         """
         Get a task by ID.
@@ -1420,41 +1285,35 @@ class TickTickClient:
         """
         return await self.create_task(text, project_id)
 
-    async def get_overdue_tasks(self, tz: str = "UTC") -> list[Task]:
+    async def get_today_tasks(self) -> list[Task]:
         """
-        Get overdue tasks (due_date or start_date before today).
+        Get tasks due today.
 
-        Args:
-            tz: IANA timezone string (e.g., "America/New_York")
+        Returns:
+            List of tasks due today
+        """
+        today = date.today()
+        all_tasks = await self.get_all_tasks()
+        return [
+            task for task in all_tasks
+            if task.due_date and task.due_date.date() == today
+        ]
+
+    async def get_overdue_tasks(self) -> list[Task]:
+        """
+        Get overdue tasks.
 
         Returns:
             List of overdue tasks
         """
-        user_tz = ZoneInfo(tz)
-        today_start = datetime.now(user_tz).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
+        today = date.today()
         all_tasks = await self.get_all_tasks()
-        overdue: list[Task] = []
-        for task in all_tasks:
-            if task.status and task.status >= 2:
-                continue
-            dd = task.due_date
-            if not dd:
-                continue
-            try:
-                if isinstance(dd, str):
-                    dd = datetime.fromisoformat(
-                        dd.replace("+0000", "+00:00").replace("Z", "+00:00")
-                    )
-                if isinstance(dd, datetime):
-                    if dd.tzinfo is None:
-                        dd = dd.replace(tzinfo=timezone.utc)
-                    if dd.astimezone(user_tz) < today_start:
-                        overdue.append(task)
-            except (ValueError, TypeError):
-                continue
-        return overdue
+        return [
+            task for task in all_tasks
+            if task.due_date
+            and task.due_date.date() < today
+            and not task.is_completed
+        ]
 
     async def get_tasks_by_tag(self, tag_name: str) -> list[Task]:
         """
