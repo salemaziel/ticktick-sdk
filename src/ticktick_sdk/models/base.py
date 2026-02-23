@@ -74,13 +74,27 @@ class TickTickModel(BaseModel):
 
     @classmethod
     def format_datetime(cls, value: datetime | None, for_api: str = "v2") -> str | None:
-        """Format a datetime for API submission."""
+        """Format a datetime for API submission.
+
+        IMPORTANT: V2 format hardcodes '+0000' timezone in the format string,
+        so we MUST convert to UTC first. Otherwise timezone-aware datetimes
+        will have their local time values formatted with +0000, creating
+        incorrect timestamps.
+
+        Example bug without UTC conversion:
+          Input:  2026-02-12 07:00:00-08:00 (7 AM Pacific)
+          Output: 2026-02-12T07:00:00.000+0000 (claims 7 AM UTC = wrong!)
+          Correct: 2026-02-12T15:00:00.000+0000 (3 PM UTC = 7 AM Pacific)
+        """
         if value is None:
             return None
 
         # Ensure timezone aware
         if value.tzinfo is None:
             value = value.replace(tzinfo=timezone.utc)
+        else:
+            # Convert to UTC to match the hardcoded +0000 in format strings
+            value = value.astimezone(timezone.utc)
 
         if for_api == "v1":
             return value.strftime(DATETIME_FORMAT_V1)
